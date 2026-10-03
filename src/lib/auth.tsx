@@ -9,9 +9,7 @@ import {
 } from 'react'
 import { womModuleAccessLevel } from './rbac'
 import { type GroundCrewSubRole, normalizeGroundCrewSubRole } from './types'
-import { API_BASE_URL } from './apiConfig'
 import { useIdleTimeout } from './useIdleTimeout'
-import { fetchAuthCapabilities } from './adminPermissionsApi'
 import { getDefaultRouteForUser } from './route-guard'
 
 export type WomSubRole =
@@ -140,6 +138,19 @@ export function mapBackendUserToPortalAccount(data: {
 
 export const MANNING_OFFICER_SUBROLE: WomSubRole = 'Manning Officer'
 export const EXECUTIVE_LOGIN_EMAILS = ['executive@lumiere.com']
+const DEMO_PASSWORD = 'lumiere2026'
+const DEMO_ACCOUNTS: PortalAccount[] = [
+  { id: 'demo-admin', email: 'admin@lumiere.com', name: 'Demo Administrator', role: 'Admin', portal: 'web', temporaryPassword: false },
+  { id: 'demo-executive', email: 'executive@lumiere.com', name: 'Demo Executive', role: 'Executive', portal: 'web', temporaryPassword: false, canAccessAssetInventoryAndAllocation: true },
+  { id: 'demo-planner', email: 'planner@lumiere.com', name: 'Demo Planner', role: 'Event Planner', portal: 'web', temporaryPassword: false },
+  { id: 'demo-crew', email: 'crew@lumiere.com', name: 'Demo Crew', role: 'Ground Crew', portal: 'pwa', subRole: 'Field', groundCrewSubRole: 'Field', temporaryPassword: false },
+  { id: 'demo-ops', email: 'warehouseops@lumiere.com', name: 'Warehouse Operations', role: 'Warehouse Manager', portal: 'web', fullWarehouseAccess: true, temporaryPassword: false },
+  { id: 'demo-manning', email: 'manning@lumiere.com', name: 'Manning Officer', role: 'Warehouse Manager', subRole: 'Manning Officer', portal: 'pwa', temporaryPassword: false },
+  { id: 'demo-warehouse', email: 'warehouse@lumiere.com', name: 'Warehouse Manager', role: 'Warehouse Manager', subRole: 'Warehouse Manager', portal: 'web', temporaryPassword: false },
+  { id: 'demo-production', email: 'production@lumiere.com', name: 'Production Manager', role: 'Warehouse Manager', subRole: 'Production Manager', portal: 'pwa', temporaryPassword: false },
+  { id: 'demo-inventory', email: 'inventory@lumiere.com', name: 'Inventory Officer', role: 'Warehouse Manager', subRole: 'Inventory Officer', portal: 'pwa', temporaryPassword: false },
+  { id: 'demo-purchasing', email: 'purchasing@lumiere.com', name: 'Purchasing Officer', role: 'Warehouse Manager', subRole: 'Purchasing Officer', portal: 'web', temporaryPassword: false },
+]
 
 export function parseJwtPayload(token: string): Record<string, any> | null {
   try {
@@ -275,30 +286,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => Boolean(getInitialUser()?.canAccessAssetInventoryAndAllocation),
   )
 
-  const refreshCapabilities = useCallback(async (tokenOverride?: string): Promise<boolean> => {
-    const t = tokenOverride || getStoredAuth().rawToken || currentUser?.token
-    if (!t) {
-      setBackendAssetCapability(false)
-      return false
-    }
-    const result = await fetchAuthCapabilities(t)
-    if (result) {
-      setBackendAssetCapability(result.canAccessAssetInventoryAndAllocation)
-      setCurrentUser((prev) =>
-        prev
-          ? {
-              ...prev,
-              canAccessAssetInventoryAndAllocation: result.canAccessAssetInventoryAndAllocation,
-            }
-          : null,
-      )
-      return result.canAccessAssetInventoryAndAllocation
-    } else {
-      // Safe denied state if API returns non-200 or network failure
-      setBackendAssetCapability(false)
-      return false
-    }
-  }, [currentUser?.token])
+  const refreshCapabilities = useCallback(async (): Promise<boolean> => {
+    const capability = Boolean(currentUser?.canAccessAssetInventoryAndAllocation)
+    setBackendAssetCapability(capability)
+    return capability
+  }, [currentUser?.canAccessAssetInventoryAndAllocation])
 
   const logout = useCallback(() => {
     clearStoredAuth()
@@ -313,7 +305,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useIdleTimeout(logout, Boolean(currentUser))
 
-  const checkHasPin = useCallback(async (token?: string, userEmail?: string) => {
+  const checkHasPin = useCallback(async (_token?: string, userEmail?: string) => {
     const emailKey = (userEmail || currentUser?.email || '').trim().toLowerCase()
     if (emailKey && localStorage.getItem(`_lumiere_has_pin_${emailKey}`) === 'true') {
       setHasConfirmationPin(true)
@@ -324,30 +316,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return true
     }
 
-    const t = token || getStoredAuth().rawToken || currentUser?.token
-    if (!t) return true
-
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 600)
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/auth/has-pin`, {
-        headers: { Authorization: `Bearer ${t}` },
-        signal: controller.signal,
-      })
-      clearTimeout(timeoutId)
-      if (res.ok) {
-        const data = await res.json()
-        const has = Boolean(data.hasPin ?? data.HasPin)
-        if (has) {
-          if (emailKey) localStorage.setItem(`_lumiere_has_pin_${emailKey}`, 'true')
-          localStorage.setItem('_lumiere_has_pin_global', 'true')
-          setHasConfirmationPin(true)
-        }
-        return has
-      }
-    } catch {
-      clearTimeout(timeoutId)
-    }
     return true
   }, [currentUser?.email, currentUser?.token])
 
@@ -377,7 +345,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         // Authoritative reload refresh: stale browser state cannot become permission authority
         if (token) {
-          void refreshCapabilities(token)
+          void refreshCapabilities()
         } else {
           setBackendAssetCapability(false)
         }
@@ -408,24 +376,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const normalizedEmail = email.trim().toLowerCase()
 
       try {
-        const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: normalizedEmail, password }),
-        })
-
-        if (res.ok) {
-          const data = (await res.json()) as {
-            token: string
-            fullName: string
-            email: string
-            userId: string
-            role: string
-            canAccessAssetInventoryAndAllocation?: boolean
-            CanAccessAssetInventoryAndAllocation?: boolean
-            allowAssetInventoryAndAllocation?: boolean
-          }
-          const account = mapBackendUserToPortalAccount(data)
+        const account = DEMO_ACCOUNTS.find((candidate) => candidate.email === normalizedEmail)
+        if (account && password === DEMO_PASSWORD) {
 
           if (portal && account.portal !== portal) {
             return {
@@ -453,66 +405,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
           storage.setItem('_lumiere_auth_user', JSON.stringify(account))
           storage.setItem('_lumiere_auth_portal', account.portal)
-          if (data.token) {
-            storage.setItem('_lumiere_auth_token', data.token)
-            await checkHasPin(data.token)
-          }
+          await checkHasPin(undefined, account.email)
           return { ok: true }
-        }
-
-        // Handle Non-200 Responses
-        let errorMsg = ''
-        try {
-          const errBody = await res.json()
-          errorMsg = errBody?.error || errBody?.Error || errBody?.message || ''
-        } catch {}
-
-        const lowerMsg = errorMsg.toLowerCase()
-
-        if (res.status === 429 || lowerMsg.includes('locked') || lowerMsg.includes('too many')) {
-          return {
-            ok: false,
-            reason: 'locked',
-            message: errorMsg || 'Account is temporarily locked due to repeated failed login attempts. Please try again in 15 minutes.',
-          }
-        }
-
-        if (lowerMsg.includes('suspended') || lowerMsg.includes('inactive') || lowerMsg.includes('deactivated')) {
-          return {
-            ok: false,
-            reason: 'suspended',
-            message: errorMsg || 'Account is suspended. Please contact a system administrator.',
-          }
-        }
-
-        if (res.status >= 500) {
-          return {
-            ok: false,
-            reason: 'server-error',
-            message: 'Server error occurred during login. Please try again later.',
-          }
-        }
-
-        if (res.status === 401) {
-          return {
-            ok: false,
-            reason: 'invalid',
-            message: errorMsg || 'Invalid credentials. Please verify your email and password.',
-          }
         }
 
         return {
           ok: false,
           reason: 'invalid',
-          message: errorMsg || 'Invalid credentials. Please verify your email and password.',
+          message: 'Invalid demo credentials. Please use one of the accounts shown below.',
         }
-      } catch (err) {
-        console.warn('[Auth] REST API login failed:', err)
-        return {
-          ok: false,
-          reason: 'network-error',
-          message: 'Network connection error. Please check your internet connection or server availability.',
-        }
+      } catch {
+        return { ok: false, reason: 'invalid', message: 'Invalid demo credentials.' }
       }
     },
     [checkHasPin]
@@ -522,37 +425,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async (current: string, next: string) => {
       if (!currentUser) return false
       try {
-        const token = currentUser.token || getStoredAuth().rawToken
-        if (token) {
-          const res = await fetch(`${API_BASE_URL}/api/auth/change-password`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({
-              currentPassword: current,
-              newPassword: next,
-            }),
-          })
-          if (!res.ok) {
-            console.warn('[Auth] change-password returned status', res.status)
-            return false
-          }
-          const data = await res.json()
-          const newToken = data.token || token
-
-          const updated = { ...currentUser, temporaryPassword: false, token: newToken }
-          setCurrentUser(updated)
-          const { isSession } = getStoredAuth()
-          const storage = isSession ? sessionStorage : localStorage
-          storage.setItem('_lumiere_auth_user', JSON.stringify(updated))
-          if (data.token) {
-            storage.setItem('_lumiere_auth_token', data.token)
-          }
-          return true
-        }
-
+        if (current !== DEMO_PASSWORD || !next.trim()) return false
         const updated = { ...currentUser, temporaryPassword: false }
         setCurrentUser(updated)
         const { isSession } = getStoredAuth()
@@ -567,23 +440,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [currentUser],
   )
 
-  const verifyPassword = useCallback(
-    async (password: string) => {
-      if (!currentUser) return false
-      try {
-        const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: currentUser.email, password }),
-        })
-        return res.ok
-      } catch (err) {
-        console.error('[Auth] Password verify error:', err)
-        return false
-      }
-    },
-    [currentUser],
-  )
+  const verifyPassword = useCallback(async (password: string): Promise<boolean> => password === DEMO_PASSWORD, [])
+
 
   const setConfirmationPin = useCallback(
     async (pin: string): Promise<boolean> => {
@@ -597,21 +455,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setHasConfirmationPin(true)
       } catch {}
 
-      const token = currentUser?.token || getStoredAuth().rawToken
-      if (token) {
-        try {
-          await fetch(`${API_BASE_URL}/api/auth/set-pin`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({ pin }),
-          })
-        } catch (err) {
-          console.error('[Auth] setConfirmationPin error:', err)
-        }
-      }
       return true
     },
     [currentUser?.email, currentUser?.token],
@@ -625,25 +468,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return true
       }
 
-      const token = currentUser?.token || getStoredAuth().rawToken
-      if (token) {
-        try {
-          const res = await fetch(`${API_BASE_URL}/api/auth/verify-pin`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({ pin }),
-          })
-          if (res.ok) {
-            const data = await res.json()
-            return Boolean(data.valid ?? data.Valid)
-          }
-        } catch (err) {
-          console.error('[Auth] verifyConfirmationPin error:', err)
-        }
-      }
       return storedPin ? storedPin === pin : true
     },
     [currentUser?.email, currentUser?.token],

@@ -1,7 +1,6 @@
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { User, Lock, Eye, EyeOff, HardHat, Sun, Moon, Monitor } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
-import { supabase } from '@/lib/supabase'
 import { useThemeMode, type ThemeMode } from '@/lib/theme'
 import { usePortal } from '@/lib/store'
 
@@ -69,10 +68,13 @@ export function LoginPage({ onCrewPortal }: { onCrewPortal: () => void }) {
 
     setSubmittingRequest(true)
     try {
-      void supabase
-        .from('access_requests')
-        .insert({ email: normalized, type: requestType, status: 'pending' })
-      
+      const requestKey = '_lumiere_access_requests'
+      const existingRequests = JSON.parse(localStorage.getItem(requestKey) || '[]')
+      localStorage.setItem(requestKey, JSON.stringify([
+        ...existingRequests,
+        { id: crypto.randomUUID(), email: normalized, type: requestType, status: 'pending', createdAt: new Date().toISOString() },
+      ]))
+
       addUserAction({
         type: 'access-request',
         user: normalized,
