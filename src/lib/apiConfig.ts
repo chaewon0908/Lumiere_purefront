@@ -1,11 +1,12 @@
 /**
  * Central configuration for backend REST API base URL.
  * Uses `import.meta.env.VITE_API_URL` when specified.
- * Defaults to 'http://localhost:8080' in development mode only — never in production builds.
+ * An empty value means the optional backend is not configured for this build.
  */
 export const API_BASE_URL: string =
-  (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/+$/, '') ||
-  (import.meta.env.DEV ? 'http://localhost:8080' : '')
+  (import.meta.env.VITE_API_URL as string | undefined)?.trim().replace(/\/+$/, '') || ''
+
+export const isApiConfigured = API_BASE_URL.length > 0
 
 /**
  * Retrieves stored JWT auth token from localStorage or sessionStorage.

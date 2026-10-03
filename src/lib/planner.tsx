@@ -513,9 +513,10 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let active = true
     import('@/lib/eventsApi').then(({ fetchEventsApi }) => {
-      fetchEventsApi().then((remoteEvents) => {
-        if (!active || !remoteEvents.length) return
-        const mappedPipelineEvents: PipelineEvent[] = remoteEvents.map((pe) => ({
+      fetchEventsApi()
+        .then((remoteEvents) => {
+          if (!active || !remoteEvents.length) return
+          const mappedPipelineEvents: PipelineEvent[] = remoteEvents.map((pe) => ({
           id: pe.id,
           title: pe.title,
           client: pe.client || 'Not available from backend yet',
@@ -530,13 +531,16 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
           footprint: 'Pending survey',
           attendance: 'Pending confirmation',
           pipelineStage: 'Ideation Phase',
-        }))
-        setEvents((prev) => {
-          const existingIds = new Set(prev.map((e) => e.id))
-          const newRemote = mappedPipelineEvents.filter((e) => !existingIds.has(e.id))
-          return [...newRemote, ...prev]
+          }))
+          setEvents((prev) => {
+            const existingIds = new Set(prev.map((e) => e.id))
+            const newRemote = mappedPipelineEvents.filter((e) => !existingIds.has(e.id))
+            return [...newRemote, ...prev]
+          })
         })
-      })
+        .catch((error) => {
+          if (import.meta.env.DEV) console.warn('[planner] Event API unavailable; using local seed events.', error)
+        })
     })
     return () => {
       active = false

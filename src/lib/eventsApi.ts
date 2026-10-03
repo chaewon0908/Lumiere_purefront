@@ -1,4 +1,4 @@
-import { API_BASE_URL, getAuthToken } from './apiConfig'
+import { API_BASE_URL, getAuthToken, isApiConfigured } from './apiConfig'
 import type { PortalEvent } from './types'
 
 export function isGuid(id?: string | null): boolean {
@@ -506,6 +506,10 @@ export async function updateEventApi(
  * 10-second timeout. Throws on network/server errors to distinguish failure from empty state.
  */
 export async function fetchEventsApi(page = 1, pageSize = 50, statusFilter?: string): Promise<PortalEvent[]> {
+  // The planner has local seed data and can operate without the optional REST API.
+  // Avoid issuing a browser fetch when no backend URL is configured for this build.
+  if (!isApiConfigured) return []
+
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), 10000)
   try {
