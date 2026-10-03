@@ -10,6 +10,7 @@ import {
 import { supabase } from '@/lib/supabase'
 import { approveCanvasApi } from '@/lib/canvasApi'
 import { populateWarehouseDispatchFromCanvas } from '@/lib/warehouse-dispatch'
+import { API_BASE_URL } from '@/lib/apiConfig'
 
 /* ============================================================
    Event Planner domain — pipeline portfolios, design canvases,
@@ -509,8 +510,10 @@ export function PlannerProvider({ children }: { children: ReactNode }) {
   const [concepts] = useState<QuickConcept[]>(seedConcepts)
   const [decor, setDecor] = useState<DecorElement[]>(seedDecor)
 
-  // Hydrate pipeline events from backend REST API (GET /api/events)
+  // Hydrate pipeline events only when the optional REST API is configured.
   useEffect(() => {
+    if (!API_BASE_URL) return
+
     let active = true
     import('@/lib/eventsApi').then(({ fetchEventsApi }) => {
       fetchEventsApi().then((remoteEvents) => {
